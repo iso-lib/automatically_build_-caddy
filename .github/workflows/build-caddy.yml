@@ -1,0 +1,213 @@
+name: Build Caddy with Custom Plugins
+
+on:
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      caddy_version:
+        description: 'Caddy version (e.g., v2.7.6 or latest)'
+        required: false
+        default: 'latest'
+  # 定时构建（每周一凌晨2点）
+  schedule:
+    - cron: '0 2 * * 1'
+  # 推送到main分支时触发
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-caddy.yml'
+      - 'plugins.txt'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+
+      - name: Install xcaddy
+        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+      - name: Read plugins list
+        id: plugins
+        run: |
+          if [ -f "plugins.txt" ]; then
+            # 读取插件列表，过滤空行和注释
+            PLUGINS=$(grep -v '^#' plugins.txt | grep -v '^$' | tr '\n' ' ')
+            echo "list=$PLUGINS" >> $GITHUB_OUTPUT
+          else
+            echo "list=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Determine Caddy version
+        id: version
+        run: |
+          if [ "${{ github.event.inputs.caddy_version }}" == "latest" ] || [ -z "${{ github.event.inputs.caddy_version }}" ]; then
+            VERSION=$(curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          else
+            VERSION="${{ github.event.inputs.caddy_version }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building Caddy $VERSION"
+
+      - name: Build Caddy with plugins
+        run: |
+          PLUGINS="${{ steps.plugins.outputs.list }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          
+          if [ -z "$PLUGINS" ]; then
+            echo "Building Caddy without additional plugins..."
+            xcaddy build $VERSION
+          else
+            echo "Building Caddy with plugins: $PLUGINS"
+            xcaddy build $VERSION $PLUGINS
+          fi
+
+      - name: Get build info
+        id: build_info
+        run: |
+          ./caddy version
+          BUILD_DATE=$(date +'%Y%m%d')
+          echo "date=$BUILD_DATE" >> $GITHUB_OUTPUT
+          
+          # 获取架构信息
+          ARCH=$(uname -m)
+          echo "arch=$ARCH" >> $GITHUB_OUTPUT
+
+      - name: Create archive
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BUILD_DATE="${{ steps.build_info.date }}"
+          ARCH="${{ steps.build_info.arch }}"
+          
+          ARCHIVE_NAME="caddy-${VERSION}-linux-${ARCH}-custom-${BUILD_DATE}.tar.gz"
+          tar -czf $ARCHIVE_NAME caddy
+          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: caddy-${{ steps.version.outputs.version }}-${{ steps.build_info.date }}
+          path: |
+            caddy
+            ${{ env.ARCHIVE_NAME }}
+          retention-days: 30
+
+      - name: Create Release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: build-${{ steps.build_info.date }}
+          name: Caddy ${{ steps.version.outputs.version }} Custom Build
+          body: |
+            ## Caddy Custom Build
+            
+            - **Caddy Version**: ${{ steps.version.outputs.version }}
+            - **Build Date**: ${{ steps.build_info.date }}
+            - **Architecture**: ${{ steps.build_info.arch }}
+            
+            ### Included Plugins
+            ```
+            ${{ steps.plugins.outputs.list }}
+            ```
+            
+            ### Usage
+            ```bash
+            # 解压
+            tar -xzf ${{ env.ARCHIVE_NAME }}
+            
+            # 赋予执行权限
+            chmod +x caddy
+            
+            # 查看版本
+            ./caddy version
+            ```
+          files: |
+            caddy
+            ${{ env.ARCHIVE_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-multiarch:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Install xcaddy
+        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+      - name: Read plugins list
+        id: plugins
+        run: |
+          if [ -f "plugins.txt" ]; then
+            PLUGINS=$(grep -v '^#' plugins.txt | grep -v '^$' | tr '\n' ' ')
+            echo "list=$PLUGINS" >> $GITHUB_OUTPUT
+          else
+            echo "list=" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Caddy
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION="${{ github.event.inputs.caddy_version }}"
+          if [ "$VERSION" == "latest" ] || [ -z "$VERSION" ]; then
+            VERSION=$(curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          fi
+          
+          PLUGINS="${{ steps.plugins.outputs.list }}"
+          
+          if [ -z "$PLUGINS" ]; then
+            xcaddy build $VERSION
+          else
+            xcaddy build $VERSION $PLUGINS
+          fi
+
+      - name: Create archive
+        run: |
+          BUILD_DATE=$(date +'%Y%m%d')
+          if [ "${{ matrix.goos }}" == "windows" ]; then
+            ARCHIVE_NAME="caddy-${{ matrix.goos }}-${{ matrix.goarch }}-${BUILD_DATE}.zip"
+            zip $ARCHIVE_NAME caddy.exe
+          else
+            ARCHIVE_NAME="caddy-${{ matrix.goos }}-${{ matrix.goarch }}-${BUILD_DATE}.tar.gz"
+            tar -czf $ARCHIVE_NAME caddy
+          fi
+          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: caddy-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ env.ARCHIVE_NAME }}
+          retention-days: 30
