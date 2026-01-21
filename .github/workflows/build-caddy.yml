@@ -8,16 +8,14 @@ on:
         description: 'Caddy version (e.g., v2.7.6 or latest)'
         required: false
         default: 'latest'
-  # 定时构建（每周一凌晨2点）
+      enable_multiarch:
+        description: 'Enable multi-architecture build (Linux/macOS/Windows)'
+        required: false
+        type: boolean
+        default: false
+  # 定时构建(每周一凌晨2点 UTC)
   schedule:
     - cron: '0 2 * * 1'
-  # 推送到main分支时触发
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/build-caddy.yml'
-      - 'plugins.txt'
 
 jobs:
   build:
