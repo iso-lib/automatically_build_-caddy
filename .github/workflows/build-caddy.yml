@@ -102,7 +102,7 @@ jobs:
           retention-days: 30
 
       - name: Create Release
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event.inputs.enable_multiarch == 'true'
         uses: softprops/action-gh-release@v1
         with:
           tag_name: build-${{ steps.build_info.date }}
@@ -138,7 +138,7 @@ jobs:
 
   build-multiarch:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event.inputs.enable_multiarch == 'true'
     strategy:
       matrix:
         include:
