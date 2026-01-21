@@ -1,5 +1,7 @@
 # Caddy 自定义编译工作流
 
+[English](./README_EN.md) | 简体中文
+
 这个 GitHub Actions 工作流可以自动编译带有自定义插件的 Caddy 服务器。
 
 ## 📋 功能特性
