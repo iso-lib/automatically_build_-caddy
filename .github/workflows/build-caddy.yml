@@ -100,17 +100,17 @@ jobs:
           retention-days: 30
 
       - name: Create Release
-        if: github.event.inputs.enable_multiarch == 'true'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: build-${{ steps.build_info.date }}
-          name: Caddy ${{ steps.version.outputs.version }} Custom Build
+          tag_name: build-${{ steps.build_info.date }}-${{ steps.version.outputs.version }}
+          name: Caddy ${{ steps.version.outputs.version }} - ${{ steps.build_info.date }}
           body: |
             ## Caddy Custom Build
             
             - **Caddy Version**: ${{ steps.version.outputs.version }}
             - **Build Date**: ${{ steps.build_info.date }}
-            - **Architecture**: ${{ steps.build_info.arch }}
+            - **Platform**: Linux ${{ steps.build_info.arch }}
+            - **Trigger**: ${{ github.event_name }}
             
             ### Included Plugins
             ```
@@ -125,18 +125,22 @@ jobs:
             # 赋予执行权限
             chmod +x caddy
             
-            # 查看版本
+            # 查看版本和插件
             ./caddy version
+            ./caddy list-modules
             ```
           files: |
             caddy
             ${{ env.ARCHIVE_NAME }}
+          draft: false
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-multiarch:
     runs-on: ubuntu-latest
     if: github.event.inputs.enable_multiarch == 'true'
+    needs: build
     strategy:
       matrix:
         include:
@@ -194,14 +198,20 @@ jobs:
       - name: Create archive
         run: |
           BUILD_DATE=$(date +'%Y%m%d')
+          VERSION="${{ github.event.inputs.caddy_version }}"
+          if [ "$VERSION" == "latest" ] || [ -z "$VERSION" ]; then
+            VERSION=$(curl -s https://api.github.com/repos/caddyserver/caddy/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+          fi
+          
           if [ "${{ matrix.goos }}" == "windows" ]; then
-            ARCHIVE_NAME="caddy-${{ matrix.goos }}-${{ matrix.goarch }}-${BUILD_DATE}.zip"
+            ARCHIVE_NAME="caddy-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}-${BUILD_DATE}.zip"
             zip $ARCHIVE_NAME caddy.exe
           else
-            ARCHIVE_NAME="caddy-${{ matrix.goos }}-${{ matrix.goarch }}-${BUILD_DATE}.tar.gz"
+            ARCHIVE_NAME="caddy-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}-${BUILD_DATE}.tar.gz"
             tar -czf $ARCHIVE_NAME caddy
           fi
           echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -209,3 +219,11 @@ jobs:
           name: caddy-${{ matrix.goos }}-${{ matrix.goarch }}
           path: ${{ env.ARCHIVE_NAME }}
           retention-days: 30
+      
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: build-$(date +'%Y%m%d')-${{ env.VERSION }}
+          files: ${{ env.ARCHIVE_NAME }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
