@@ -131,7 +131,7 @@ strategy:
 ### DNS Providers
 - `github.com/caddy-dns/cloudflare` - Cloudflare DNS
 - `github.com/caddy-dns/alidns` - Alibaba Cloud DNS
-- `github.com/caddy-dns/dnspod` - DNSPod
+- `github.com/caddy-dns/tencentcloud` - DNSPod
 - `github.com/caddy-dns/route53` - AWS Route53
 
 ### Feature Plugins
