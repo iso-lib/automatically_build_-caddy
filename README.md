@@ -130,7 +130,7 @@ strategy:
 ### DNS 提供商
 - `github.com/caddy-dns/cloudflare` - Cloudflare DNS
 - `github.com/caddy-dns/alidns` - 阿里云 DNS
-- `github.com/caddy-dns/dnspod` - DNSPod
+- `github.com/caddy-dns/tencentcloud` - DNSPod
 - `github.com/caddy-dns/route53` - AWS Route53
 
 ### 功能插件
